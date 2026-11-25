@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<!--
+  Template: quiz runner — practice (per-question) and paper (submit all at once) modes
+  Use for: 单选 / 多选 / 填空 / 连线 / 阅读理解 / 图示大题，任意组合。
+  Replace: the QUIZ object only. Renderers, grading and scoring stay.
+  Practice: 逐题检查、即时解析、图示题可提交批改或自评。
+  Paper: `mode: 'paper'` — 无检查/解析/自评/错题标注，底部一个「交卷」统一发送。
+  Keep: theme vars with fallbacks, no external assets, 4-6 questions, height <= 1200 (practice).
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>随堂测</title>
+<style>
+  :root{
+    --fg: var(--foreground, #1b1b1f);
+    --mu: var(--muted-foreground, #62626f);
+    --bd: var(--border, #dcdce4);
+    --cd: var(--card, #f5f5f8);
+    --ac: var(--accent, #2f5ad0);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:transparent;color:var(--fg);font-family:inherit;-webkit-font-smoothing:antialiased}
+  .wrap{padding:2px 0 10px}
+  .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 2px}
+  .hd h3{margin:0;font-size:16px;font-weight:650;letter-spacing:.01em}
+  .hd .sub{font-size:11.5px;color:var(--mu)}
+  .q:last-child{margin-bottom:0}
+  .group:last-child{margin-bottom:0}
+  .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px}
+  .pill{font-size:11px;color:var(--mu);border:1px solid var(--bd);border-radius:99px;padding:2px 9px;white-space:nowrap}
+  .pill b{color:var(--fg);font-weight:650}
+  .btn{font:inherit;font-size:11.5px;line-height:1.5;color:var(--fg);background:transparent;border:1px solid var(--bd);border-radius:8px;padding:4px 10px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .btn:hover:not(:disabled){border-color:var(--ac);color:var(--ac)}
+  .btn.primary{border-color:rgba(47,90,208,.55);color:var(--ac)}
+  .btn.primary:hover:not(:disabled){background:rgba(47,90,208,.08)}
+  .btn.ghost{border-color:transparent;color:var(--mu);padding:4px 6px}
+  .btn:disabled{cursor:default;opacity:.62}
+
+  .q{position:relative;border:1px solid var(--bd);border-radius:12px;padding:11px 13px 10px;margin-bottom:8px;background:rgba(127,127,140,.045)}
+  .q.ok{border-color:rgba(34,197,94,.55)}
+  .q.no{border-color:rgba(239,68,68,.5)}
+  .q.half{border-color:rgba(245,158,11,.55)}
+  .group{border:1px solid var(--bd);border-radius:12px;padding:11px 13px 3px;margin-bottom:8px;background:rgba(127,127,140,.045)}
+  .group .qh{margin-bottom:0}
+  .gtitle{font-size:12px;font-weight:600;color:var(--mu)}
+  .qh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+  .num{flex:none;width:21px;height:21px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--ac);background:rgba(47,90,208,.12)}
+  .type{font-size:11.5px;line-height:1.65;letter-spacing:.02em;color:var(--mu);border:1px solid var(--bd);border-radius:5px;padding:0 5px;white-space:nowrap}
+  .tagline{font-size:11px;color:var(--mu)}
+  .stem{font-size:13.5px;line-height:1.72;margin:0 0 7px;overflow-wrap:anywhere}
+  .stem b,.stem strong{font-weight:650}
+
+  .opts{display:grid;gap:5px}
+  .opts.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .opt{display:flex;align-items:flex-start;gap:9px;width:100%;text-align:left;font:inherit;font-size:12.5px;line-height:1.55;color:var(--fg);background:transparent;border:1px solid var(--bd);border-radius:9px;padding:6px 9px;cursor:pointer;transition:border-color .14s,background .14s}
+  .opt:hover:not(:disabled){border-color:rgba(47,90,208,.5)}
+  .opt .k{flex:none;width:15px;font-size:11.5px;font-weight:700;line-height:1.75;color:var(--mu)}
+  .opt .tx{flex:1;min-width:0}
+  .opt.sel{border-color:var(--ac);background:rgba(47,90,208,.09)}
+  .opt.sel .k{color:var(--ac)}
+  .opt.right{border-color:rgba(34,197,94,.65);background:rgba(34,197,94,.1)}
+  .opt.wrong{border-color:rgba(239,68,68,.6);background:rgba(239,68,68,.09)}
+  .opt:disabled{cursor:default}
+
+  .blank{display:inline-block;font:inherit;font-size:12.5px;line-height:1.5;color:var(--fg);background:rgba(127,127,140,.1);border:0;border-bottom:1.5px solid var(--mu);border-radius:5px 5px 0 0;padding:1px 4px 2px;margin:0 4px;text-align:center;outline:none;caret-color:var(--ac)}
+  .blank:focus{border-color:var(--ac);background:rgba(47,90,208,.12)}
+  .blank.ok{border-color:rgba(34,197,94,.8)}
+  .blank.no{border-color:rgba(239,68,68,.75)}
+  .blank:disabled{color:var(--fg);opacity:1}
+  .blank::placeholder{color:var(--mu)}
+  .fillrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .flab{font-size:11.5px;color:var(--mu)}
+
+  .qf{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:7px}
+  .fb{margin-top:9px;padding:8px 10px;border-left:2px solid var(--bd);border-radius:0 8px 8px 0;background:rgba(127,127,140,.06);font-size:12px;line-height:1.7}
+  .fb.ok{border-left-color:rgba(34,197,94,.85);background:rgba(34,197,94,.07)}
+  .fb.half{border-left-color:rgba(245,158,11,.85);background:rgba(245,158,11,.07)}
+  .fb.no{border-left-color:rgba(239,68,68,.8);background:rgba(239,68,68,.06)}
+  .fb .tag{font-weight:700;margin-right:8px}
+  .fb .ex{color:var(--mu);margin-top:3px}
+  .hint{font-size:11.5px;line-height:1.65;color:var(--mu);margin:8px 0 0;padding:7px 9px;border:1px dashed var(--bd);border-radius:8px}
+  .warn{font-size:11.5px;color:var(--mu);margin-top:8px}
+
+  .match{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:7px 52px;margin-top:8px}
+  .mcol{display:grid;gap:6px;align-content:start}
+  .mi{position:relative;z-index:1;display:flex;align-items:center;gap:8px;width:100%;text-align:left;font:inherit;font-size:12.5px;line-height:1.5;color:var(--fg);background:transparent;border:1px solid var(--bd);border-radius:8px;padding:5px 9px;cursor:pointer;transition:border-color .14s,background .14s}
+  .mi:hover:not(:disabled){border-color:rgba(47,90,208,.5)}
+  .mi .badge{flex:none;width:12px;text-align:center;font-size:11px;font-weight:700;line-height:1.55;color:var(--mu)}
+  .mi .tx{flex:1;min-width:0}
+  .mi .pk{flex:none;display:none;font-size:11px;color:var(--ac)}
+  .mi.act{border-color:var(--ac);background:rgba(47,90,208,.09)}
+  .mi.linked{border-color:rgba(47,90,208,.42)}
+  .mi.ok{border-color:rgba(34,197,94,.6);background:rgba(34,197,94,.08)}
+  .mi.no{border-color:rgba(239,68,68,.55);background:rgba(239,68,68,.07)}
+  .links{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+  .links line{stroke:rgba(47,90,208,.55);stroke-width:1.4;stroke-linecap:round}
+  .links line.ok{stroke:rgba(34,197,94,.8)}
+  .links line.no{stroke:rgba(239,68,68,.7);stroke-dasharray:4 3}
+  .mhint{font-size:11px;color:var(--mu);margin-top:5px}
+
+  .passage{font-size:12.5px;line-height:1.8;color:var(--mu);border-left:2px solid var(--bd);padding:1px 0 1px 11px;margin:8px 0 10px;white-space:pre-wrap;overflow-wrap:anywhere}
+  .subq{border-top:1px dashed var(--bd);padding:8px 0 6px;margin-top:2px}
+
+  .fig{margin:6px 0 10px;padding:6px;border:1px solid var(--bd);border-radius:10px;background:rgba(127,127,140,.045)}
+  .fig svg{display:block;width:100%;height:auto;max-height:320px}
+  .subs{list-style:none;margin:0 0 9px;padding:0}
+  .subs li{font-size:12.5px;line-height:1.75;margin-bottom:2px}
+  textarea{width:100%;font:inherit;font-size:12.5px;line-height:1.7;color:var(--fg);background:rgba(127,127,140,.05);border:1px solid var(--bd);border-radius:9px;padding:8px 10px;resize:vertical;min-height:76px;outline:none}
+  textarea:focus{border-color:var(--ac)}
+  .ref{font-size:12.5px;line-height:1.85;margin:10px 0 0;padding:9px 11px;border-left:2px solid rgba(47,90,208,.6);background:rgba(47,90,208,.06);white-space:pre-wrap;overflow-wrap:anywhere}
+  .rubric{margin-top:10px;border:1px dashed var(--bd);border-radius:9px;padding:9px 11px}
+  .rubric .rt{font-size:11px;color:var(--mu);margin-bottom:6px}
+  .rl{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.65;margin-bottom:5px;cursor:pointer}
+  .rl input{appearance:none;-webkit-appearance:none;width:14px;height:14px;flex:none;margin:2px 0 0;border:1px solid var(--bd);border-radius:4px;background:transparent;cursor:pointer;position:relative}
+  .rl input:checked{background:var(--ac);border-color:var(--ac)}
+  .rl input:checked::after{content:'';position:absolute;left:3.5px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .rsum{font-size:11.5px;color:var(--mu);margin-top:6px}
+
+  .foot{margin-top:12px;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;line-height:1.6}
+  .foot .ftxt{color:var(--mu)}
+  .foot .big{font-size:13.5px;font-weight:700;color:var(--fg)}
+  .foot[hidden],.paperbar[hidden]{display:none}
+
+  .paperbar{margin-top:12px;padding:11px 13px;border:1px solid var(--bd);border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;line-height:1.6}
+  .paperbar .pt{color:var(--mu)}
+  .paperbar .pt b{color:var(--fg);font-weight:650}
+  .sendbox{margin-top:10px;padding:10px 11px;border:1px dashed var(--bd);border-radius:10px}
+  .sendbox .pt{font-size:11.5px;color:var(--mu);margin-bottom:6px}
+  .sendbox textarea{min-height:120px;font-size:11.5px;line-height:1.6;margin-bottom:8px}
+  .sent{margin-top:10px;padding:9px 11px;border-left:2px solid var(--ac);background:rgba(47,90,208,.07);font-size:12px;line-height:1.65;color:var(--mu)}
+
+  @media (max-width:640px){ .opts.two{grid-template-columns:1fr} }
+  @media (max-width:560px){
+    .q,.group{padding:11px 12px 10px}
+    .stem{font-size:13px}
+  }
+  @media (max-width:520px){
+    .match{grid-template-columns:1fr;gap:12px}
+    .links{display:none}
+    .mi .pk{display:inline}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hd">
+    <h3 id="title">随堂测</h3>
+    <span class="sub" id="sub"></span>
+  </div>
+  <div class="bar">
+    <span class="pill" id="prog">已答 0/0</span>
+    <span class="pill" id="score">得分 —</span>
+    <span class="pill" id="self" hidden></span>
+    <button class="btn" id="reset" type="button">重做</button>
+  </div>
+  <div id="list"></div>
+  <div class="paperbar" id="paperbar" hidden></div>
+  <div class="foot" id="foot" hidden></div>
+</div>
+
+<script>
+const QUIZ = {
+  title: '网络基础 · 随堂测',
+  subtitle: '5 题 · 约 5 分钟 · 单选 / 多选 / 填空 / 连线 / 阅读',
+  questions: [
+    {
+      type: 'single',
+      cols: 2,
+      stem: '下列设备中，工作在<b>网络层</b>的是：',
+      options: ['集线器', '二层交换机', '路由器', '中继器'],
+      answer: 2,
+      hint: '看它转发时依据什么地址。',
+      explain: '路由器依据 IP 地址选路，属于网络层设备；集线器和中继器在物理层，二层交换机依据 MAC 地址转发。'
+    },
+    {
+      type: 'multi',
+      cols: 2,
+      stem: '关于 VLAN，下列说法<b>正确</b>的有：',
+      options: ['VLAN 可以隔离广播域', '不同 VLAN 默认不能直接通信', 'VLAN 只能按端口划分', 'Trunk 链路可以承载多个 VLAN'],
+      answers: [0, 1, 3],
+      explain: 'VLAN 可按端口、MAC 地址、协议等划分；跨 VLAN 通信需要三层设备。漏选得 0.5，错选不得分。'
+    },
+    {
+      type: 'fill',
+      stem: 'IPv4 地址长度为 {{}} 位；RIPv2 使用 {{}} 协议传输，端口号为 {{}}。',
+      blanks: [{ a: ['32'], w: 4 }, { a: ['UDP'], w: 4 }, { a: ['520'], w: 4 }],
+      explain: 'IPv4 是 32 位；RIP 基于 UDP，RIPv2 使用 520 端口。'
+    },
+    {
+      type: 'match',
+      stem: '把协议和它的特征连起来：',
+      pairs: [
+        ['OSPF', '链路状态，用 SPF 计算'],
+        ['RIP', '距离矢量，最大 15 跳'],
+        ['BGP', '路径矢量，AS 之间'],
+        ['ARP', '由 IP 求 MAC']
+      ],
+      explain: 'IGP 里 OSPF 是链路状态、RIP 是距离矢量；BGP 是 EGP；ARP 负责二层地址解析。'
+    },
+    {
+      type: 'reading',
+      passage: 'SW1 与 SW2 用 Trunk 互联，两端都创建了 VLAN 10。SW1 的 G0/0/1 只放行 VLAN 20，SW2 的 G0/0/1 放行全部 VLAN；结果 SW1 的 VLAN 10 主机 ping 不通 SW2 的 VLAN 10 主机。',
+      questions: [
+        {
+          type: 'single',
+          cols: 2,
+          stem: '根据材料，最可能的故障原因是：',
+          options: ['SW1 未创建 VLAN 10', 'SW1 的 Trunk 未放行 VLAN 10', 'SW2 的 Trunk 配置错误', '主机网关配置错误'],
+          answer: 1,
+          explain: '材料已说明 VLAN 10 在 SW1 上存在；SW1 的 Trunk 只放行 VLAN 20，VLAN 10 的帧在出接口被丢弃。'
+        }
+      ]
+    }
+  ]
+};
+
+(function () {
+  'use strict';
+
+  const TYPES = { single: '单选题', multi: '多选题', fill: '填空题', match: '连线题', reading: '阅读理解', diagram: '图示大题' };
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const MODE = QUIZ.mode === 'paper' ? 'paper' : 'practice';
+  const listEl = document.getElementById('list');
+  const progEl = document.getElementById('prog');
+  const scoreEl = document.getElementById('score');
+  const selfEl = document.getElementById('self');
+  const footEl = document.getElementById('foot');
+  const paperbar = document.getElementById('paperbar');
+  const state = new Map();
+  const units = [];
+  let flat = [];
+  let seq = 0;
+  let selfTotal = 0;
+  let selfMax = 0;
+  let submitted = false;
+  let pendingPaper = false;
+
+  document.getElementById('title').textContent = QUIZ.title || '随堂测';
+  document.getElementById('sub').textContent = QUIZ.subtitle || '';
+  document.getElementById('reset').addEventListener('click', init);
+
+  function norm(v) {
+    return String(v == null ? '' : v).normalize('NFKC').toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[。．.，,；;：:、"'“”‘’()（）]/g, '');
+  }
+
+  function fmt(n) {
+    return (Math.round(n * 10) / 10).toString().replace(/\.0$/, '');
+  }
+
+  function answerIndex(v) {
+    if (typeof v === 'number') return v;
+    const s = String(v).trim().toUpperCase();
+    const i = LETTERS.indexOf(s);
+    if (i >= 0) return i;
+    const n = parseInt(s, 10);
+    return Number.isFinite(n) ? n - 1 : -1;
+  }
+
+  function rotate(n) {
+    const step = Math.ceil(n / 2);
+    return Array.from({ length: n }, (_, k) => (k + step) % n);
+  }
+
+  function ansList(b) {
+    if (!b) return [];
+    if (Array.isArray(b.a)) return b.a;
+    if (b.a != null) return [b.a];
+    if (b.answer != null) return [b.answer];
+    return [];
+  }
+
+  function warn(card, msg) {
+    let w = card.querySelector('.warn');
+    if (!w) {
+      w = document.createElement('div');
+      w.className = 'warn';
+      card.append(w);
+    }
+    w.textContent = msg;
+    clearTimeout(w.__t);
+    w.__t = setTimeout(() => w.remove(), 2200);
+  }
+
+  function init() {
+    state.clear();
+    flat = [];
+    units.length = 0;
+    seq = 0;
+    selfTotal = 0;
+    selfMax = 0;
+    submitted = false;
+    pendingPaper = false;
+    listEl.innerHTML = '';
+    footEl.hidden = true;
+    footEl.innerHTML = '';
+    selfEl.hidden = true;
+    selfEl.textContent = '';
+    scoreEl.hidden = MODE === 'paper';
+    paperbar.hidden = MODE !== 'paper';
+    paperbar.innerHTML = '';
+    const oldBox = document.getElementById('sendbox');
+    if (oldBox) oldBox.remove();
+    const resetBtn = document.getElementById('reset');
+    resetBtn.disabled = false;
+    resetBtn.textContent = MODE === 'paper' ? '清空答卷' : '重做';
+    if (MODE === 'paper') buildPaperbar();
+    (QUIZ.questions || []).forEach(q => renderTop(q, listEl));
+    update();
+  }
+
+  function renderTop(q, host) {
+    if (q.type !== 'reading') {
+      renderItem(q, host, false);
+      return;
+    }
+    const group = document.createElement('div');
+    group.className = 'group';
+    const head = document.createElement('div');
+    head.className = 'qh';
+    const typ = document.createElement('span');
+    typ.className = 'type';
+    typ.textContent = TYPES.reading;
+    head.append(typ);
+    if (q.title) {
+      const t = document.createElement('span');
+      t.className = 'gtitle';
+      t.textContent = q.title;
+      head.append(t);
+    }
+    group.append(head);
+    const passage = document.createElement('div');
+    passage.className = 'passage';
+    passage.innerHTML = q.passage || '';
+    group.append(passage);
+    (q.questions || []).forEach(nq => renderItem(nq, group, true));
+    host.append(group);
+  }
+
+  function renderItem(q, host, nested) {
+    const id = 'q' + (++seq);
+    q.__id = id;
+    const s = { checked: false, score: 0, pick: null, picks: new Set(), links: {}, active: null, draw: null, result: null };
+    state.set(id, s);
+
+    const card = document.createElement('div');
+    card.className = nested ? 'subq' : 'q';
+    card.dataset.id = id;
+
+    const head = document.createElement('div');
+    head.className = 'qh';
+    const num = document.createElement('span');
+    num.className = 'num';
+    num.textContent = seq;
+    const typ = document.createElement('span');
+    typ.className = 'type';
+    typ.textContent = TYPES[q.type] || '';
+    head.append(num, typ);
+    card.append(head);
+
+    units.push(q);
+    if (q.type === 'diagram') {
+      renderDiagram(q, card, s);
+    } else {
+      flat.push(q);
+      if (q.type === 'fill') {
+        renderFillStem(q, card, s);
+      } else {
+        const stem = document.createElement('p');
+        stem.className = 'stem';
+        stem.innerHTML = q.stem || '';
+        card.append(stem);
+      }
+      if (q.type === 'single' || q.type === 'multi') renderOptions(q, card, s);
+      if (q.type === 'match') renderMatch(q, card, s);
+
+      if (MODE === 'practice') {
+        const foot = document.createElement('div');
+        foot.className = 'qf';
+        if (q.hint) {
+          const hb = document.createElement('button');
+          hb.type = 'button';
+          hb.className = 'btn ghost';
+          hb.textContent = '提示';
+          hb.addEventListener('click', () => {
+            if (s.checked) return;
+            const old = card.querySelector('.hint');
+            if (old) { old.remove(); return; }
+            const h = document.createElement('div');
+            h.className = 'hint';
+            h.textContent = '💡 ' + q.hint;
+            card.insertBefore(h, foot);
+          });
+          foot.append(hb);
+        }
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn primary';
+        btn.textContent = '检查';
+        btn.addEventListener('click', () => check(q, card, s));
+        foot.append(btn);
+        card.append(foot);
+
+        const fb = document.createElement('div');
+        fb.className = 'fb';
+        fb.hidden = true;
+        card.append(fb);
+      }
+    }
+    host.append(card);
+  }
+
+  function renderOptions(q, card, s) {
+    const opts = document.createElement('div');
+    opts.className = 'opts' + (q.cols === 2 ? ' two' : '');
+    (q.options || []).forEach((text, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'opt';
+      b.dataset.i = i;
+      const k = document.createElement('span');
+      k.className = 'k';
+      k.textContent = LETTERS[i] || String(i + 1);
+      const tx = document.createElement('span');
+      tx.className = 'tx';
+      tx.textContent = text;
+      b.append(k, tx);
+      b.addEventListener('click', () => {
+        if (s.checked) return;
+        if (q.type === 'single') {
+          s.pick = i;
+          opts.querySelectorAll('.opt').forEach(o => o.classList.toggle('sel', +o.dataset.i === i));
+        } else {
+          if (s.picks.has(i)) s.picks.delete(i); else s.picks.add(i);
+          b.classList.toggle('sel', s.picks.has(i));
+        }
+        update();
+      });
+      opts.append(b);
+    });
+    card.append(opts);
+  }
+
+  function renderFillStem(q, card, s) {
+    const blanks = q.blanks || [];
+    const stem = document.createElement('div');
+    stem.className = 'stem';
+    const parts = String(q.stem || '').split('{{}}');
+
+    function makeBlank(b, i) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'blank';
+      inp.autocomplete = 'off';
+      const w = (b && b.w) || 6;
+      inp.style.width = Math.min(220, Math.max(58, w * 13)) + 'px';
+      inp.dataset.i = i;
+      inp.setAttribute('aria-label', '第 ' + (i + 1) + ' 空');
+      inp.addEventListener('input', update);
+      inp.addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const btn = card.querySelector('.qf .btn.primary');
+        if (btn && !btn.disabled) btn.click();
+      });
+      return inp;
+    }
+
+    if (parts.length - 1 === blanks.length) {
+      parts.forEach((t, i) => {
+        stem.append(document.createTextNode(t));
+        if (i < blanks.length) stem.append(makeBlank(blanks[i], i));
+      });
+      card.append(stem);
+      return;
+    }
+
+    stem.innerHTML = q.stem || '';
+    const row = document.createElement('div');
+    row.className = 'fillrow';
+    blanks.forEach((b, i) => {
+      const lab = document.createElement('span');
+      lab.className = 'flab';
+      lab.textContent = '（' + (i + 1) + '）';
+      row.append(lab, makeBlank(b, i));
+    });
+    card.append(stem, row);
+  }
+
+  function renderMatch(q, card, s) {
+    const pairs = q.pairs || [];
+    const n = pairs.length;
+    const order = (Array.isArray(q.order) && q.order.length === n) ? q.order.slice() : rotate(n);
+    s.order = order;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'match';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'links');
+    svg.setAttribute('aria-hidden', 'true');
+    const L = document.createElement('div');
+    L.className = 'mcol left';
+    const R = document.createElement('div');
+    R.className = 'mcol right';
+
+    pairs.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mi left';
+      b.dataset.i = i;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = String(i + 1);
+      const tx = document.createElement('span');
+      tx.className = 'tx';
+      tx.textContent = p[0];
+      b.append(badge, tx);
+      b.addEventListener('click', () => {
+        if (s.checked) return;
+        if (s.active === i) { delete s.links[i]; s.active = null; }
+        else s.active = i;
+        paint();
+      });
+      L.append(b);
+    });
+
+    order.forEach((pi, j) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mi right';
+      b.dataset.j = j;
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = LETTERS[j] || String(j + 1);
+      const tx = document.createElement('span');
+      tx.className = 'tx';
+      tx.textContent = pairs[pi][1];
+      const pk = document.createElement('span');
+      pk.className = 'pk';
+      b.append(badge, tx, pk);
+      b.addEventListener('click', () => {
+        if (s.checked) return;
+        if (s.active == null) { warn(card, '先点左边的一项'); return; }
+        Object.keys(s.links).forEach(k => { if (s.links[k] === j) delete s.links[+k]; });
+        s.links[s.active] = j;
+        s.active = null;
+        paint();
+      });
+      R.append(b);
+    });
+
+    wrap.append(svg, L, R);
+    card.append(wrap);
+    const mhint = document.createElement('div');
+    mhint.className = 'mhint';
+    mhint.textContent = '点左边一项，再点右边对应项；再点一次左边可取消。';
+    card.append(mhint);
+
+    function paint() {
+      L.querySelectorAll('.mi').forEach(b => {
+        const i = +b.dataset.i;
+        b.classList.toggle('act', s.active === i);
+        b.classList.toggle('linked', s.links[i] != null);
+      });
+      R.querySelectorAll('.mi').forEach(b => {
+        const j = +b.dataset.j;
+        const owner = Object.keys(s.links).find(k => s.links[k] === j);
+        b.classList.toggle('linked', owner != null);
+        const pk = b.querySelector('.pk');
+        if (pk) pk.textContent = owner != null ? '↔' + (+owner + 1) : '';
+      });
+      draw();
+      update();
+    }
+
+    function draw() {
+      svg.innerHTML = '';
+      if (wrap.clientWidth < 520) return;
+      const wr = wrap.getBoundingClientRect();
+      svg.setAttribute('viewBox', '0 0 ' + Math.round(wr.width) + ' ' + Math.round(wr.height));
+      Object.keys(s.links).forEach(k => {
+        const i = +k;
+        const j = s.links[k];
+        const lb = L.querySelector('.mi[data-i="' + i + '"]');
+        const rb = R.querySelector('.mi[data-j="' + j + '"]');
+        if (!lb || !rb) return;
+        const a = lb.getBoundingClientRect();
+        const b = rb.getBoundingClientRect();
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', Math.round(a.right - wr.left));
+        line.setAttribute('y1', Math.round(a.top - wr.top + a.height / 2));
+        line.setAttribute('x2', Math.round(b.left - wr.left));
+        line.setAttribute('y2', Math.round(b.top - wr.top + b.height / 2));
+        if (s.result) line.setAttribute('class', s.result[i] ? 'ok' : 'no');
+        svg.append(line);
+      });
+    }
+
+    s.draw = draw;
+    if (window.ResizeObserver) new ResizeObserver(draw).observe(wrap);
+    else window.addEventListener('resize', draw);
+    requestAnimationFrame(draw);
+  }
+
+  function renderDiagram(q, card, s) {
+    const fig = document.createElement('div');
+    fig.className = 'fig';
+    fig.innerHTML = q.svg || '';
+    card.append(fig);
+
+    if (q.stem) {
+      const p = document.createElement('p');
+      p.className = 'stem';
+      p.innerHTML = q.stem;
+      card.append(p);
+    }
+    if (q.subs && q.subs.length) {
+      const ul = document.createElement('ul');
+      ul.className = 'subs';
+      q.subs.forEach(t => {
+        const li = document.createElement('li');
+        li.textContent = t;
+        ul.append(li);
+      });
+      card.append(ul);
+    }
+
+    const ta = document.createElement('textarea');
+    ta.rows = q.rows || 3;
+    ta.placeholder = q.placeholder || (MODE === 'paper'
+      ? '写下你的解答（交卷后统一批改）'
+      : '写下你的解答，提交 Hermes 批改；参考答案与自评是可选操作');
+    ta.addEventListener('input', update);
+    card.append(ta);
+
+    if (MODE === 'paper') return;
+
+    const foot = document.createElement('div');
+    foot.className = 'qf';
+    const submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'btn primary';
+    submit.textContent = '提交给 Hermes 批改';
+    const selfBtn = document.createElement('button');
+    selfBtn.type = 'button';
+    selfBtn.className = 'btn ghost';
+    selfBtn.textContent = '自评 / 参考答案';
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'btn ghost';
+    clear.textContent = '清空';
+    foot.append(submit, selfBtn, clear);
+    card.append(foot);
+
+    const box = document.createElement('div');
+    box.hidden = true;
+    card.append(box);
+
+    const ref = document.createElement('div');
+    ref.className = 'ref';
+    ref.innerHTML = q.reference || '';
+    box.append(ref);
+
+    let built = false;
+    let got = 0;
+    let total = 0;
+    const sum = document.createElement('div');
+    sum.className = 'rsum';
+
+    function paintSum() { sum.textContent = '自评 ' + fmt(got) + ' / ' + total + ' 分'; }
+
+    function buildRubric() {
+      if (built) return;
+      built = true;
+      const rub = q.rubric || [];
+      if (!rub.length) return;
+      total = rub.reduce((a, r) => a + (r.s || 0), 0);
+      selfMax += total;
+      const rb = document.createElement('div');
+      rb.className = 'rubric';
+      const rt = document.createElement('div');
+      rt.className = 'rt';
+      rt.textContent = '对照参考解答，勾选你答到的步骤：';
+      rb.append(rt);
+      rub.forEach(r => {
+        const lab = document.createElement('label');
+        lab.className = 'rl';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        const sp = document.createElement('span');
+        sp.textContent = r.t + (r.s ? '（' + r.s + ' 分）' : '');
+        cb.addEventListener('change', () => {
+          const d = cb.checked ? (r.s || 0) : -(r.s || 0);
+          got += d;
+          selfTotal += d;
+          paintSum();
+          update();
+        });
+        lab.append(cb, sp);
+        rb.append(lab);
+      });
+      paintSum();
+      rb.append(sum);
+      box.append(rb);
+    }
+
+    selfBtn.addEventListener('click', () => {
+      buildRubric();
+      box.hidden = !box.hidden;
+      selfBtn.textContent = box.hidden ? '自评 / 参考答案' : '收起自评';
+      update();
+    });
+
+    clear.addEventListener('click', () => {
+      ta.value = '';
+      ta.disabled = false;
+      box.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+      selfTotal -= got;
+      got = 0;
+      paintSum();
+      update();
+    });
+
+    submit.addEventListener('click', () => submitDiagram(q, card, ta, submit));
+  }
+
+  function stripHtml(html) {
+    const d = document.createElement('div');
+    d.innerHTML = html || '';
+    return d.textContent.replace(/\s+/g, ' ').trim();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  function maxSend() {
+    const m = window.hermes && Number(window.hermes.maxLength);
+    return m > 80 ? m : 500;
+  }
+
+  function clip(s, n) {
+    s = String(s || '');
+    return s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s;
+  }
+
+  async function sendToHermes(text, near, fallback) {
+    const bridge = window.hermes;
+    if (bridge && typeof bridge.send === 'function') {
+      try {
+        let res = await bridge.send(text);
+        if (res && res.ok === false && res.error === 'throttled') {
+          await sleep(Math.min(1600, (res.retryAfterMs || 1100)));
+          res = await bridge.send(text);
+        }
+        if (!res || res.ok !== false) return true;
+      } catch (e) { /* fall through */ }
+    }
+    showCopy(fallback || text, near);
+    return false;
+  }
+
+  function showCopy(text, near) {
+    const old = document.getElementById('sendbox');
+    if (old) old.remove();
+    const box = document.createElement('div');
+    box.className = 'sendbox';
+    box.id = 'sendbox';
+    const tip = document.createElement('div');
+    tip.className = 'pt';
+    tip.textContent = '发送失败或当前环境不支持直发，复制下面完整内容发给 Hermes：';
+    const ta = document.createElement('textarea');
+    ta.readOnly = true;
+    ta.rows = 6;
+    ta.value = text;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = '复制';
+    btn.addEventListener('click', () => {
+      const done = () => { btn.textContent = '已复制 ♪'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, () => { ta.select(); document.execCommand('copy'); done(); });
+      } else {
+        ta.select();
+        document.execCommand('copy');
+        done();
+      }
+    });
+    box.append(tip, ta, btn);
+    (near || paperbar).after(box);
+    box.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function submitDiagram(q, card, ta, btn) {
+    const ans = ta.value.trim();
+    if (!ans) { warn(card, '先写下解答再提交'); return; }
+    btn.disabled = true;
+    btn.textContent = '发送中…';
+    const svg = card.querySelector('.fig svg');
+    const fig = svg
+      ? [
+        svg.getAttribute('aria-label') || '',
+        [...svg.querySelectorAll('text')].map(t => t.textContent.trim()).filter(Boolean).join(' / ')
+      ].filter(Boolean).join('；')
+      : '';
+    const full = [
+      '请批改这道图示大题（按评分点判分，不要直接抄答案）。',
+      '题目：' + stripHtml(q.stem),
+      (q.subs && q.subs.length ? '小问：' + q.subs.join(' ') : ''),
+      (fig ? '图形条件：' + fig : ''),
+      '我的解答：' + ans.slice(0, 2500),
+      '参考答案（仅供对照）：' + stripHtml(q.reference),
+      '评分点：' + (q.rubric || []).map(r => r.t + '（' + r.s + '分）').join('；'),
+      '请输出：本题得分 x/y、逐条评分点是否拿到、第一处错误或跳步、一句改进建议。'
+    ].filter(Boolean).join('\n');
+
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(full);
+        copied = true;
+      }
+    } catch (e) { /* clipboard may be blocked */ }
+
+    const where = QUIZ.file ? '（' + clip(QUIZ.file, 70) + '）' : '';
+    const head = '批改图示大题《' + (QUIZ.title || '') + '》' + where + '。我的解答：';
+    const tail = copied
+      ? '。完整解答与评分点在剪贴板（pbpaste），按评分点逐条判分。'
+      : '。完整解答见下方复制框，按评分点逐条判分。';
+    const digest = head + clip(ans.replace(/[。．.！!？?]+$/g, ''), Math.max(60, maxSend() - 12 - head.length - tail.length)) + tail;
+
+    const ok = await sendToHermes(digest, card, full);
+    if (!ok) {
+      btn.disabled = false;
+      btn.textContent = '重试提交';
+      return;
+    }
+    if (!copied) showCopy(full, card);
+    ta.disabled = true;
+    btn.disabled = true;
+    btn.textContent = '已提交';
+    const note = document.createElement('div');
+    note.className = 'sent';
+    note.textContent = copied
+      ? '已提交 · 完整解答在剪贴板，批改结果会回到聊天 ♪'
+      : '已提交 · 批改结果会回到聊天 ♪';
+    ta.after(note);
+  }
+
+  function buildPaperbar() {
+    paperbar.innerHTML = '';
+    const t = document.createElement('div');
+    t.className = 'pt';
+    t.id = 'paperText';
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn primary';
+    b.id = 'submitPaper';
+    b.textContent = '交卷';
+    b.addEventListener('click', submitPaper);
+    paperbar.append(t, b);
+  }
+
+  function cardOf(q) {
+    return listEl.querySelector('[data-id="' + q.__id + '"]');
+  }
+
+  function isAnswered(q) {
+    const s = state.get(q.__id);
+    if (!s) return false;
+    if (q.type === 'single') return s.pick != null;
+    if (q.type === 'multi') return s.picks.size > 0;
+    if (q.type === 'fill') {
+      const card = cardOf(q);
+      return !!card && [...card.querySelectorAll('.blank')].every(i => i.value.trim());
+    }
+    if (q.type === 'match') return Object.keys(s.links).length === (q.pairs || []).length;
+    if (q.type === 'diagram') {
+      const card = cardOf(q);
+      return !!card && !!card.querySelector('textarea').value.trim();
+    }
+    return false;
+  }
+
+  function updatePaper() {
+    if (submitted) return;
+    const done = units.filter(isAnswered).length;
+    progEl.innerHTML = '已答 <b>' + done + '/' + units.length + '</b>';
+    const t = document.getElementById('paperText');
+    if (t) {
+      t.innerHTML = done === units.length
+        ? '全部作答完毕，交卷后统一批改'
+        : '还有 <b>' + (units.length - done) + '</b> 题未作答';
+    }
+  }
+
+  async function submitPaper() {
+    if (submitted) return;
+    const btn = document.getElementById('submitPaper');
+    const missing = units.filter(q => !isAnswered(q));
+    if (missing.length && !pendingPaper) {
+      pendingPaper = true;
+      if (btn) btn.textContent = '确认交卷';
+      const t = document.getElementById('paperText');
+      if (t) t.innerHTML = '还有 <b>' + missing.length + '</b> 题未作答，再点一次确认提交';
+      setTimeout(() => {
+        if (!submitted && pendingPaper) {
+          pendingPaper = false;
+          if (btn) btn.textContent = '交卷';
+          updatePaper();
+        }
+      }, 5000);
+      return;
+    }
+
+    const full = buildPaperPrompt();
+    let copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(full);
+        copied = true;
+      }
+    } catch (e) { /* clipboard may be blocked */ }
+
+    const digest = buildPaperDigest(Math.max(200, maxSend() - 12), copied);
+    if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
+    const ok = await sendToHermes(digest, paperbar, full);
+
+    submitted = true;
+    pendingPaper = false;
+    listEl.querySelectorAll('input, textarea, button').forEach(el => { el.disabled = true; });
+    const resetBtn = document.getElementById('reset');
+    resetBtn.disabled = ok;
+    paperbar.innerHTML = '';
+    const note = document.createElement('div');
+    note.className = 'sent';
+    note.textContent = ok
+      ? (copied ? '已交卷 · 完整答卷在剪贴板，批改结果会回到聊天 ♪' : '已交卷 · 批改结果会回到聊天 ♪')
+      : '交卷失败 · 请复制下方完整答卷发给 Hermes，或点「清空答卷」重来';
+    paperbar.append(note);
+    if (ok && !copied) showCopy(full, paperbar);
+    progEl.innerHTML = ok ? '已交卷 · ' + units.length + ' 题' : '发送失败 · ' + units.length + ' 题';
+    scoreEl.hidden = true;
+  }
+
+  function buildPaperPrompt() {
+    const mine = [];
+    const key = [];
+    let n = 0;
+
+    function walk(list) {
+      list.forEach(q => {
+        if (q.type === 'reading') {
+          mine.push('\n【阅读材料】' + stripHtml(q.passage));
+          walk(q.questions || []);
+          return;
+        }
+        const s = state.get(q.__id);
+        if (!s) return;
+        n++;
+        const stem = stripHtml(q.stem).replace(/\{\{\}\}/g, '____');
+        mine.push('\n' + n + '. [' + (TYPES[q.type] || '') + '] ' + stem);
+        if (q.type === 'single' || q.type === 'multi') {
+          (q.options || []).forEach((o, i) => mine.push('   ' + LETTERS[i] + '. ' + o));
+          const ans = q.type === 'single'
+            ? (s.pick == null ? '未作答' : LETTERS[s.pick])
+            : (s.picks.size ? [...s.picks].sort((a, b) => a - b).map(i => LETTERS[i]).join('、') : '未作答');
+          mine.push('   我的答案：' + ans);
+        } else if (q.type === 'fill') {
+          const card = cardOf(q);
+          const vals = card ? [...card.querySelectorAll('.blank')].map(i => i.value.trim() || '（空）') : [];
+          mine.push('   我的填空：' + vals.map((v, i) => '（' + (i + 1) + '）' + v).join(' '));
+        } else if (q.type === 'match') {
+          const order = s.order || [];
+          const links = Object.keys(s.links).sort((a, b) => a - b)
+            .map(i => (+i + 1) + '→' + (LETTERS[s.links[i]] || '?') + ' ' + ((q.pairs[order[s.links[i]]] || [])[1] || ''));
+          mine.push('   我的连线：' + (links.length ? links.join('、') : '未作答'));
+        } else if (q.type === 'diagram') {
+          const card = cardOf(q);
+          const ta = card ? card.querySelector('textarea') : null;
+          mine.push('   我的解答：' + (ta && ta.value.trim() ? ta.value.trim().slice(0, 2500) : '未作答'));
+        }
+
+        key.push('\n' + n + '.');
+        if (q.type === 'single') key.push('正确答案：' + (LETTERS[answerIndex(q.answer)] || '?') + '。' + stripHtml(q.explain));
+        else if (q.type === 'multi') key.push('正确答案：' + (q.answers || []).map(i => LETTERS[answerIndex(i)]).join('、') + '。' + stripHtml(q.explain));
+        else if (q.type === 'fill') key.push('答案：' + (q.blanks || []).map((b, i) => '（' + (i + 1) + '）' + (ansList(b)[0] || '')).join(' ') + '。' + stripHtml(q.explain));
+        else if (q.type === 'match') key.push('正确连线：' + (q.pairs || []).map((p, i) => (i + 1) + '→' + p[1]).join('；') + '。' + stripHtml(q.explain));
+        else if (q.type === 'diagram') key.push('参考答案：' + stripHtml(q.reference) + ' 评分点：' + (q.rubric || []).map(r => r.t + '（' + r.s + '分）').join('；'));
+      });
+    }
+
+    walk(QUIZ.questions || []);
+    return [
+      '请批改这份试卷（试卷模式，统一交卷；客观题按标准答案判分，图示题按评分点判分）。',
+      '试卷：' + (QUIZ.title || ''),
+      '文件：' + (QUIZ.file || location.pathname || ''),
+      '共 ' + n + ' 题。',
+      '\n===== 我的作答 =====' + mine.join('\n'),
+      '\n===== 标准答案与评分点（仅供批改，不要直接抄给我） =====' + key.join(' '),
+      '\n请输出：总分（x/' + n + '）、逐题对错、每题一句解析；错题指出错在哪一步；图示题给出评分点得分。'
+    ].join('\n');
+  }
+
+  function buildPaperDigest(limit, copied) {
+    const parts = [];
+    const diag = [];
+    let n = 0;
+
+    function walk(list) {
+      list.forEach(q => {
+        if (q.type === 'reading') { walk(q.questions || []); return; }
+        const s = state.get(q.__id);
+        if (!s) return;
+        n++;
+        if (q.type === 'single') {
+          parts.push(n + (s.pick == null ? '-' : LETTERS[s.pick]));
+        } else if (q.type === 'multi') {
+          parts.push(n + (s.picks.size ? [...s.picks].sort((a, b) => a - b).map(i => LETTERS[i]).join('') : '-'));
+        } else if (q.type === 'fill') {
+          const card = cardOf(q);
+          parts.push(n + '=' + (card ? [...card.querySelectorAll('.blank')].map(i => i.value.trim() || '-').join('/') : '-'));
+        } else if (q.type === 'match') {
+          const keys = Object.keys(s.links).sort((a, b) => a - b);
+          parts.push(n + '=' + (keys.length
+            ? keys.map(i => (+i + 1) + (LETTERS[s.links[i]] || '?')).join(',')
+            : '-'));
+        } else if (q.type === 'diagram') {
+          const card = cardOf(q);
+          const ta = card ? card.querySelector('textarea') : null;
+          diag.push({ n, text: ta ? ta.value.trim() : '' });
+        }
+      });
+    }
+
+    walk(QUIZ.questions || []);
+    const where = QUIZ.file
+      ? '（' + clip(QUIZ.file, 70) + '）'
+      : '（在 ~/.hermes/widgets 里按标题找 HTML）';
+    const head = '批改试卷《' + (QUIZ.title || '') + '》' + where + '。我的答案：';
+    const tail = copied
+      ? '。完整答卷在剪贴板（pbpaste），按文件里的答案与评分点逐题批改，结果发聊天。'
+      : '。完整答卷见下方复制框，按文件里的答案与评分点逐题批改，结果发聊天。';
+    const body = parts.join(' ');
+    const fixed = head.length + body.length + tail.length + 8;
+    const room = Math.max(0, limit - fixed);
+    const per = diag.length ? Math.max(20, Math.floor(room / diag.length)) : 0;
+    const extra = diag.map(d => {
+      const pre = ' ' + d.n + ':';
+      const txt = d.text ? d.text.replace(/[。．.！!？?]+$/g, '') : '';
+      return pre + (txt ? clip(txt, Math.max(8, per - pre.length)) : '（空）');
+    }).join('');
+    return clip(head + body + extra + tail, limit);
+  }
+
+  function check(q, card, s) {
+    if (s.checked) return;
+    let res = null;
+    if (q.type === 'single') res = checkSingle(q, card, s);
+    else if (q.type === 'multi') res = checkMulti(q, card, s);
+    else if (q.type === 'fill') res = checkFill(q, card, s);
+    else if (q.type === 'match') res = checkMatch(q, card, s);
+    if (!res) return;
+    lock(card, s);
+    paintResult(card, s, res);
+    update();
+  }
+
+  function checkSingle(q, card, s) {
+    if (s.pick == null) { warn(card, '先选一个选项'); return null; }
+    const ans = answerIndex(q.answer);
+    const ok = s.pick === ans;
+    card.querySelectorAll('.opt').forEach(o => {
+      const i = +o.dataset.i;
+      o.classList.remove('sel');
+      if (i === ans) o.classList.add('right');
+      else if (i === s.pick) o.classList.add('wrong');
+    });
+    s.score = ok ? 1 : 0;
+    const html = '<div><b>正确答案：' + (LETTERS[ans] || '—') + '</b></div>' +
+      (q.explain ? '<div class="ex">' + q.explain + '</div>' : '');
+    return { score: s.score, ok, html };
+  }
+
+  function checkMulti(q, card, s) {
+    if (!s.picks.size) { warn(card, '至少选一项'); return null; }
+    const ans = (q.answers || []).map(answerIndex).sort((a, b) => a - b);
+    const picks = [...s.picks].sort((a, b) => a - b);
+    const exact = picks.length === ans.length && picks.every((v, i) => v === ans[i]);
+    const subset = picks.length > 0 && picks.every(v => ans.includes(v));
+    const score = exact ? 1 : (subset && q.partial !== false ? 0.5 : 0);
+    card.querySelectorAll('.opt').forEach(o => {
+      const i = +o.dataset.i;
+      o.classList.remove('sel');
+      if (ans.includes(i)) o.classList.add('right');
+      else if (s.picks.has(i)) o.classList.add('wrong');
+    });
+    s.score = score;
+    const label = exact ? '正确答案：' + ans.map(i => LETTERS[i]).join('、')
+      : (subset ? '漏选，得 0.5 分；正确答案：' + ans.map(i => LETTERS[i]).join('、')
+        : '有错选，本题 0 分；正确答案：' + ans.map(i => LETTERS[i]).join('、'));
+    const html = '<div><b>' + label + '</b></div>' +
+      (q.explain ? '<div class="ex">' + q.explain + '</div>' : '');
+    return { score, ok: exact, html };
+  }
+
+  function checkFill(q, card, s) {
+    const inputs = [...card.querySelectorAll('.blank')];
+    const blanks = q.blanks || [];
+    if (!inputs.length || !blanks.length) return null;
+    if (inputs.every(i => !i.value.trim())) { warn(card, '先填空再检查'); return null; }
+    let got = 0;
+    const wrong = [];
+    blanks.forEach((b, i) => {
+      const acc = ansList(b).map(norm);
+      const v = norm(inputs[i] ? inputs[i].value : '');
+      const ok = v !== '' && acc.includes(v);
+      if (inputs[i]) inputs[i].classList.add(ok ? 'ok' : 'no');
+      if (ok) got++; else wrong.push('第' + (i + 1) + '空应为「' + (ansList(b)[0] || '') + '」');
+    });
+    const score = blanks.length ? got / blanks.length : 0;
+    s.score = score;
+    const html = '<div><b>' + (wrong.length ? wrong.join('；') : '全部填对') + '</b></div>' +
+      (q.explain ? '<div class="ex">' + q.explain + '</div>' : '');
+    return { score, ok: score === 1, html };
+  }
+
+  function checkMatch(q, card, s) {
+    const pairs = q.pairs || [];
+    const n = pairs.length;
+    const linked = Object.keys(s.links).length;
+    if (linked < n) { warn(card, '还有 ' + (n - linked) + ' 项没连'); return null; }
+    const order = s.order;
+    let good = 0;
+    s.result = {};
+    for (let i = 0; i < n; i++) {
+      const ok = s.links[i] === order.indexOf(i);
+      s.result[i] = ok;
+      if (ok) good++;
+    }
+    card.querySelectorAll('.mi.left').forEach(b => {
+      const i = +b.dataset.i;
+      b.classList.add(s.result[i] ? 'ok' : 'no');
+    });
+    card.querySelectorAll('.mi.right').forEach(b => {
+      const j = +b.dataset.j;
+      const owner = Object.keys(s.links).find(k => s.links[k] === j);
+      b.classList.add(owner != null && s.result[+owner] ? 'ok' : 'no');
+    });
+    if (s.draw) s.draw();
+    const score = n ? good / n : 0;
+    s.score = score;
+    const html = '<div><b>连对 ' + good + ' / ' + n + ' 组</b></div>' +
+      (q.explain ? '<div class="ex">' + q.explain + '</div>' : '');
+    return { score, ok: good === n, html };
+  }
+
+  function lock(card, s) {
+    s.checked = true;
+    card.classList.add('done');
+    if (s.score === 1) card.classList.add('ok');
+    else if (s.score === 0) card.classList.add('no');
+    else card.classList.add('half');
+    card.querySelectorAll('button.opt, button.mi, .blank, textarea').forEach(el => { el.disabled = true; });
+    const btn = card.querySelector('.qf .btn.primary');
+    if (btn) { btn.disabled = true; btn.textContent = '已判'; }
+  }
+
+  function paintResult(card, s, res) {
+    const fb = card.querySelector('.fb');
+    if (!fb) return;
+    fb.hidden = false;
+    fb.className = 'fb ' + (res.ok ? 'ok' : (s.score > 0 ? 'half' : 'no'));
+    fb.innerHTML = '<span class="tag">' +
+      (res.ok ? '✓ 全对' : (s.score > 0 ? '△ 部分得分 ' + fmt(s.score) : '✗ 再想想')) +
+      '</span>' + res.html;
+  }
+
+  function update() {
+    if (MODE === 'paper') { updatePaper(); return; }
+    const done = flat.filter(q => state.get(q.__id).checked);
+    const score = done.reduce((a, q) => a + state.get(q.__id).score, 0);
+    progEl.innerHTML = '已答 <b>' + done.length + '/' + flat.length + '</b>';
+    scoreEl.innerHTML = '得分 <b>' + (done.length ? fmt(score) : '—') + '</b>' +
+      (done.length ? ' / ' + flat.length : '');
+    if (selfMax > 0) {
+      selfEl.hidden = false;
+      selfEl.innerHTML = '大题自评 <b>' + fmt(selfTotal) + '/' + selfMax + '</b>';
+    } else {
+      selfEl.hidden = true;
+    }
+
+    const all = flat.length > 0 && done.length === flat.length;
+    if (!all) { footEl.hidden = true; return; }
+    const pct = Math.round(score / flat.length * 100);
+    const msg = pct >= 90 ? '很稳 ♪' : pct >= 70 ? '基本掌握，把错题再过一遍'
+      : pct >= 50 ? '有一半没吃透，回看解析' : '先回到材料，把概念补齐';
+    footEl.hidden = false;
+    footEl.innerHTML = '';
+    const txt = document.createElement('div');
+    txt.className = 'ftxt';
+    txt.innerHTML = '<span class="big">' + fmt(score) + ' / ' + flat.length + '</span> · 正确率 ' + pct + '% · ' + msg;
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.className = 'btn primary';
+    again.textContent = '错题再来一组';
+    again.addEventListener('click', async () => {
+      const wrong = flat.filter(q => {
+        const s = state.get(q.__id);
+        return s.checked && s.score < 1;
+      });
+      const detail = wrong.map(q => '- ' + stripHtml(q.stem)).join('\n');
+      await sendToHermes(
+        '针对这份练习的错题，再出 3 道同类题（同知识点、同难度）：\n' +
+        (detail || '本次全对，请出 3 道同知识点的提高题。'),
+        footEl
+      );
+    });
+    footEl.append(txt, again);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
