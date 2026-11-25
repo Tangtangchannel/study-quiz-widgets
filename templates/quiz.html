@@ -748,11 +748,6 @@ const QUIZ = {
     return m > 80 ? m : 500;
   }
 
-  function clip(s, n) {
-    s = String(s || '');
-    return s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s;
-  }
-
   async function sendRaw(text) {
     const bridge = window.hermes;
     if (!bridge || typeof bridge.send !== 'function') return false;
@@ -1039,116 +1034,6 @@ const QUIZ = {
       : '（以上是我的全部作答；客观题已判分，图示题为作答原文。）';
     return kind + '作答回显《' + (QUIZ.title || '') + '》' + where + '：\n' +
       lines.join('\n') + '\n' + tail;
-  }
-
-  function buildPaperPrompt() {
-    const mine = [];
-    const key = [];
-    let n = 0;
-
-    function walk(list) {
-      list.forEach(q => {
-        if (q.type === 'reading') {
-          mine.push('\n【阅读材料】' + stripHtml(q.passage));
-          walk(q.questions || []);
-          return;
-        }
-        const s = state.get(q.__id);
-        if (!s) return;
-        n++;
-        const stem = stripHtml(q.stem).replace(/\{\{\}\}/g, '____');
-        mine.push('\n' + n + '. [' + (TYPES[q.type] || '') + '] ' + stem);
-        if (q.type === 'single' || q.type === 'multi') {
-          (q.options || []).forEach((o, i) => mine.push('   ' + LETTERS[i] + '. ' + o));
-          const ans = q.type === 'single'
-            ? (s.pick == null ? '未作答' : LETTERS[s.pick])
-            : (s.picks.size ? [...s.picks].sort((a, b) => a - b).map(i => LETTERS[i]).join('、') : '未作答');
-          mine.push('   我的答案：' + ans);
-        } else if (q.type === 'fill') {
-          const card = cardOf(q);
-          const vals = card ? [...card.querySelectorAll('.blank')].map(i => i.value.trim() || '（空）') : [];
-          mine.push('   我的填空：' + vals.map((v, i) => '（' + (i + 1) + '）' + v).join(' '));
-        } else if (q.type === 'match') {
-          const order = s.order || [];
-          const links = Object.keys(s.links).sort((a, b) => a - b)
-            .map(i => (+i + 1) + '→' + (LETTERS[s.links[i]] || '?') + ' ' + ((q.pairs[order[s.links[i]]] || [])[1] || ''));
-          mine.push('   我的连线：' + (links.length ? links.join('、') : '未作答'));
-        } else if (q.type === 'diagram') {
-          const card = cardOf(q);
-          const ta = card ? card.querySelector('textarea') : null;
-          mine.push('   我的解答：' + (ta && ta.value.trim() ? ta.value.trim().slice(0, 2500) : '未作答'));
-        }
-
-        key.push('\n' + n + '.');
-        if (q.type === 'single') key.push('正确答案：' + (LETTERS[answerIndex(q.answer)] || '?') + '。' + stripHtml(q.explain));
-        else if (q.type === 'multi') key.push('正确答案：' + (q.answers || []).map(i => LETTERS[answerIndex(i)]).join('、') + '。' + stripHtml(q.explain));
-        else if (q.type === 'fill') key.push('答案：' + (q.blanks || []).map((b, i) => '（' + (i + 1) + '）' + (ansList(b)[0] || '')).join(' ') + '。' + stripHtml(q.explain));
-        else if (q.type === 'match') key.push('正确连线：' + (q.pairs || []).map((p, i) => (i + 1) + '→' + p[1]).join('；') + '。' + stripHtml(q.explain));
-        else if (q.type === 'diagram') key.push('参考答案：' + stripHtml(q.reference) + ' 评分点：' + (q.rubric || []).map(r => r.t + '（' + r.s + '分）').join('；'));
-      });
-    }
-
-    walk(QUIZ.questions || []);
-    return [
-      '请批改这份试卷（试卷模式，统一交卷；客观题按标准答案判分，图示题按评分点判分）。',
-      '试卷：' + (QUIZ.title || ''),
-      '文件：' + (QUIZ.file || location.pathname || ''),
-      '共 ' + n + ' 题。',
-      '\n===== 我的作答 =====' + mine.join('\n'),
-      '\n===== 标准答案与评分点（仅供批改，不要直接抄给我） =====' + key.join(' '),
-      '\n请输出：总分（x/' + n + '）、逐题对错、每题一句解析；错题指出错在哪一步；图示题给出评分点得分。'
-    ].join('\n');
-  }
-
-  function buildPaperDigest(limit, copied) {
-    const parts = [];
-    const diag = [];
-    let n = 0;
-
-    function walk(list) {
-      list.forEach(q => {
-        if (q.type === 'reading') { walk(q.questions || []); return; }
-        const s = state.get(q.__id);
-        if (!s) return;
-        n++;
-        if (q.type === 'single') {
-          parts.push(n + (s.pick == null ? '-' : LETTERS[s.pick]));
-        } else if (q.type === 'multi') {
-          parts.push(n + (s.picks.size ? [...s.picks].sort((a, b) => a - b).map(i => LETTERS[i]).join('') : '-'));
-        } else if (q.type === 'fill') {
-          const card = cardOf(q);
-          parts.push(n + '=' + (card ? [...card.querySelectorAll('.blank')].map(i => i.value.trim() || '-').join('/') : '-'));
-        } else if (q.type === 'match') {
-          const keys = Object.keys(s.links).sort((a, b) => a - b);
-          parts.push(n + '=' + (keys.length
-            ? keys.map(i => (+i + 1) + (LETTERS[s.links[i]] || '?')).join(',')
-            : '-'));
-        } else if (q.type === 'diagram') {
-          const card = cardOf(q);
-          const ta = card ? card.querySelector('textarea') : null;
-          diag.push({ n, text: ta ? ta.value.trim() : '' });
-        }
-      });
-    }
-
-    walk(QUIZ.questions || []);
-    const where = QUIZ.file
-      ? '（' + clip(QUIZ.file, 70) + '）'
-      : '（在 ~/.hermes/widgets 里按标题找 HTML）';
-    const head = '批改试卷《' + (QUIZ.title || '') + '》' + where + '。我的答案：';
-    const tail = copied
-      ? '。完整答卷在剪贴板（pbpaste），按文件里的答案与评分点逐题批改，结果发聊天。'
-      : '。完整答卷见下方复制框，按文件里的答案与评分点逐题批改，结果发聊天。';
-    const body = parts.join(' ');
-    const fixed = head.length + body.length + tail.length + 8;
-    const room = Math.max(0, limit - fixed);
-    const per = diag.length ? Math.max(20, Math.floor(room / diag.length)) : 0;
-    const extra = diag.map(d => {
-      const pre = ' ' + d.n + ':';
-      const txt = d.text ? d.text.replace(/[。．.！!？?]+$/g, '') : '';
-      return pre + (txt ? clip(txt, Math.max(8, per - pre.length)) : '（空）');
-    }).join('');
-    return clip(head + body + extra + tail, limit);
   }
 
   function check(q, card, s) {
