@@ -36,10 +36,12 @@ String(v).normalize('NFKC').toLowerCase()
 ## 试卷模式
 
 - 不调用 `check*`，不写 `.fb`，不给卡片加 `ok / no / half`；交卷前零反馈。
-- 交卷时 `buildPaperPrompt()` 生成完整 payload（题干、作答、答案、解析、评分点），写入剪贴板；
-  `buildPaperDigest()` 生成 ≤ `window.hermes.maxLength`（默认 500）的摘要，`await window.hermes.send()`。
+- 交卷时 `buildAnswerEcho('paper')` 逐题生成作答行（题号 + 题型 + 选项字母 / 填空值 / 连线 / 图示题全文），
+  `sendChunks()` 按 `maxLength - 90` 切片，每片前缀 `[作答 i/N]`，末片 `[END]`；`await window.hermes.send()`。
+- 每片都带 `QUIZ.file`，Hermes 回读原 HTML 的题干、答案与评分点；**不把答案键放进回显/复制框**。
 - 有空白题时两段式确认（先「确认交卷」，5 秒内再点提交）；交卷后禁用全部输入。
-- 失败（`too_long` / `undelivered` / 无 bridge）显示只读完整答卷 + 复制按钮，保留「清空答卷」。
+- 失败（`too_long` / `undelivered` / 无 bridge）显示只读**完整作答** + 复制按钮，保留「清空答卷」。
+- 剪贴板被拒不再影响回显：剪贴板只是可选便利，发送失败才用复制框。
 
 ## Talkback 约束
 
@@ -48,9 +50,15 @@ const res = await window.hermes.send(text);
 if (res && res.ok === false) { /* too_long | throttled | undelivered | invalid */ }
 ```
 
-- `maxLength` 默认 500；节流 1 次/秒，`throttled` 带 `retryAfterMs`。
-- 长内容不要直接发：写剪贴板 + 发摘要，提示 Hermes `pbpaste`。
-- 只有 `ok !== false` 才能显示“已交卷”。
+- `maxLength` 默认 500；节流 1 次/秒，`throttled` 带 `retryAfterMs`（`sendRaw` 自动重试一次）。
+- 长内容不要发摘要：按 `maxLength - 90` 切片，每片加 `[作答 i/N]`，末片 `[END]`；片间 1.1s。
+- 只有 `ok !== false` 才能显示“已交卷”；失败显示**完整**复制框，不假装送达。
+
+## 分片回显
+
+- 片头：`[作答 i/N]` + 换行；第一片再加一句“收齐到 [END] 后拼回”。
+- 切点优先取 `size` 内最后一个换行（并保留该换行）；没有合适换行才硬切，拼接时直接相连。
+- Hermes 侧：收齐 `[END]`，去掉每段 `[作答 i/N]` 行，按序拼回；不要对半截判分。
 
 ## 常见错误
 
@@ -60,4 +68,6 @@ if (res && res.ok === false) { /* too_long | throttled | undelivered | invalid *
 | 多选全对却显示 0.5 | `answers` 与选项索引错位 | 数一遍选项，0-based |
 | 填空永远判错 | `blanks` 数量与 `{{}}` 不一致，走了 fallback 行 | 对齐占位符数量 |
 | 连线对不上 | 手写 `order` 不是排列 | 省略 `order`，用默认错位 |
+| 拼回后少一行 | 片头 `[作答 i/N]` 后没换行，被当头部删掉 | 片头后加 `\n`；用长答案回归 |
+| 多片只到一半 | 后台标签页定时器被节流 / 发送中断 | 等 `[END]`，缺片让用户重试 |
 | 总分算错 | 把 diagram 塞进了 `flat` | diagram 由模板自动排除，别手改 |

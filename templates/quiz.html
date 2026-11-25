@@ -158,6 +158,7 @@
   <div id="list"></div>
   <div class="paperbar" id="paperbar" hidden></div>
   <div class="foot" id="foot" hidden></div>
+  <div class="sent" id="echoNote" hidden></div>
 </div>
 
 <script>
@@ -236,6 +237,9 @@ const QUIZ = {
   let selfMax = 0;
   let submitted = false;
   let pendingPaper = false;
+  let echoStarted = false;
+  let echoState = '';
+  let epoch = 0;
 
   document.getElementById('title').textContent = QUIZ.title || '随堂测';
   document.getElementById('sub').textContent = QUIZ.subtitle || '';
@@ -294,6 +298,10 @@ const QUIZ = {
     selfMax = 0;
     submitted = false;
     pendingPaper = false;
+    echoStarted = false;
+    echoState = '';
+    epoch += 1;
+    paintEcho();
     listEl.innerHTML = '';
     footEl.hidden = true;
     footEl.innerHTML = '';
@@ -745,20 +753,74 @@ const QUIZ = {
     return s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s;
   }
 
-  async function sendToHermes(text, near, fallback) {
+  async function sendRaw(text) {
     const bridge = window.hermes;
-    if (bridge && typeof bridge.send === 'function') {
-      try {
-        let res = await bridge.send(text);
-        if (res && res.ok === false && res.error === 'throttled') {
-          await sleep(Math.min(1600, (res.retryAfterMs || 1100)));
-          res = await bridge.send(text);
-        }
-        if (!res || res.ok !== false) return true;
-      } catch (e) { /* fall through */ }
+    if (!bridge || typeof bridge.send !== 'function') return false;
+    try {
+      let res = await bridge.send(text);
+      if (res && res.ok === false && res.error === 'throttled') {
+        await sleep(Math.min(1600, (res.retryAfterMs || 1100)));
+        res = await bridge.send(text);
+      }
+      return !res || res.ok !== false;
+    } catch (e) {
+      return false;
     }
+  }
+
+  async function sendToHermes(text, near, fallback) {
+    if (await sendRaw(text)) return true;
     showCopy(fallback || text, near);
     return false;
+  }
+
+  function splitChunks(text, size) {
+    const out = [];
+    let rest = String(text || '');
+    while (rest.length > size) {
+      let cut = rest.lastIndexOf('\n', size);
+      if (cut < Math.floor(size * 0.5)) {
+        cut = size;
+      } else {
+        cut += 1;
+      }
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    if (rest) out.push(rest);
+    return out;
+  }
+
+  async function sendChunks(text, near, fallback) {
+    const base = String(text || '').trim();
+    if (!base) return true;
+    const limit = Math.max(120, maxSend() - 90);
+    const chunks = splitChunks(base, limit);
+    if (chunks.length > 12) {
+      showCopy(fallback || base, near);
+      return false;
+    }
+    for (let i = 0; i < chunks.length; i++) {
+      const head = '[作答 ' + (i + 1) + '/' + chunks.length + ']' +
+        (i === 0 ? ' 请收齐到 [END] 后按顺序拼回（去掉每段 [作答 i/N] 标记）再处理，中间段落不必回复内容。\n' : '\n');
+      const tail = i === chunks.length - 1 ? '\n[END]' : '';
+      if (!(await sendRaw(head + chunks[i] + tail))) {
+        showCopy(fallback || base, near);
+        return false;
+      }
+      if (i < chunks.length - 1) await sleep(1100);
+    }
+    return true;
+  }
+
+  function paintEcho() {
+    const el = document.getElementById('echoNote');
+    if (!el) return;
+    el.hidden = !echoState;
+    el.textContent = echoState === 'sending' ? '正在把全部作答回显给 Hermes…'
+      : echoState === 'sent' ? '已把全部作答回显给 Hermes ♪'
+        : echoState === 'failed' ? '回显失败，已给出完整复制框'
+          : '';
   }
 
   function showCopy(text, near) {
@@ -805,47 +867,28 @@ const QUIZ = {
         [...svg.querySelectorAll('text')].map(t => t.textContent.trim()).filter(Boolean).join(' / ')
       ].filter(Boolean).join('；')
       : '';
-    const full = [
-      '请批改这道图示大题（按评分点判分，不要直接抄答案）。',
+    const echo = [
+      '图示作答回显《' + (QUIZ.title || '') + '》' + (QUIZ.file ? '（' + QUIZ.file + '）' : '') + '：',
       '题目：' + stripHtml(q.stem),
       (q.subs && q.subs.length ? '小问：' + q.subs.join(' ') : ''),
       (fig ? '图形条件：' + fig : ''),
-      '我的解答：' + ans.slice(0, 2500),
-      '参考答案（仅供对照）：' + stripHtml(q.reference),
-      '评分点：' + (q.rubric || []).map(r => r.t + '（' + r.s + '分）').join('；'),
-      '请输出：本题得分 x/y、逐条评分点是否拿到、第一处错误或跳步、一句改进建议。'
+      '我的解答：' + ans,
+      (q.rubric && q.rubric.length ? '评分点：' + q.rubric.map(r => r.t + '（' + r.s + '分）').join('；') : ''),
+      '（请按以上评分点逐条判分。）'
     ].filter(Boolean).join('\n');
 
-    let copied = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(full);
-        copied = true;
-      }
-    } catch (e) { /* clipboard may be blocked */ }
-
-    const where = QUIZ.file ? '（' + clip(QUIZ.file, 70) + '）' : '';
-    const head = '批改图示大题《' + (QUIZ.title || '') + '》' + where + '。我的解答：';
-    const tail = copied
-      ? '。完整解答与评分点在剪贴板（pbpaste），按评分点逐条判分。'
-      : '。完整解答见下方复制框，按评分点逐条判分。';
-    const digest = head + clip(ans.replace(/[。．.！!？?]+$/g, ''), Math.max(60, maxSend() - 12 - head.length - tail.length)) + tail;
-
-    const ok = await sendToHermes(digest, card, full);
+    const ok = await sendChunks(echo, card, echo);
     if (!ok) {
       btn.disabled = false;
       btn.textContent = '重试提交';
       return;
     }
-    if (!copied) showCopy(full, card);
     ta.disabled = true;
     btn.disabled = true;
     btn.textContent = '已提交';
     const note = document.createElement('div');
     note.className = 'sent';
-    note.textContent = copied
-      ? '已提交 · 完整解答在剪贴板，批改结果会回到聊天 ♪'
-      : '已提交 · 批改结果会回到聊天 ♪';
+    note.textContent = '已提交 · 全部解答已回显给 Hermes，批改结果会回到聊天 ♪';
     ta.after(note);
   }
 
@@ -915,18 +958,12 @@ const QUIZ = {
       return;
     }
 
-    const full = buildPaperPrompt();
-    let copied = false;
+    const echo = buildAnswerEcho('paper');
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(full);
-        copied = true;
-      }
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(echo);
     } catch (e) { /* clipboard may be blocked */ }
-
-    const digest = buildPaperDigest(Math.max(200, maxSend() - 12), copied);
     if (btn) { btn.disabled = true; btn.textContent = '发送中…'; }
-    const ok = await sendToHermes(digest, paperbar, full);
+    const ok = await sendChunks(echo, paperbar, echo);
 
     submitted = true;
     pendingPaper = false;
@@ -937,12 +974,71 @@ const QUIZ = {
     const note = document.createElement('div');
     note.className = 'sent';
     note.textContent = ok
-      ? (copied ? '已交卷 · 完整答卷在剪贴板，批改结果会回到聊天 ♪' : '已交卷 · 批改结果会回到聊天 ♪')
+      ? '已交卷 · 全部作答已回显给 Hermes，批改结果会回到聊天 ♪'
       : '交卷失败 · 请复制下方完整答卷发给 Hermes，或点「清空答卷」重来';
     paperbar.append(note);
-    if (ok && !copied) showCopy(full, paperbar);
     progEl.innerHTML = ok ? '已交卷 · ' + units.length + ' 题' : '发送失败 · ' + units.length + ' 题';
     scoreEl.hidden = true;
+  }
+
+  function answerOf(q, s) {
+    if (q.type === 'single') return s.pick == null ? '未作答' : LETTERS[s.pick];
+    if (q.type === 'multi') {
+      return s.picks.size
+        ? [...s.picks].sort((a, b) => a - b).map(i => LETTERS[i]).join('')
+        : '未作答';
+    }
+    if (q.type === 'fill') {
+      const card = cardOf(q);
+      return card ? [...card.querySelectorAll('.blank')].map(i => i.value.trim() || '-').join('/') : '未作答';
+    }
+    if (q.type === 'match') {
+      const keys = Object.keys(s.links).sort((a, b) => a - b);
+      return keys.length
+        ? keys.map(i => (+i + 1) + (LETTERS[s.links[i]] || '?')).join(',')
+        : '未作答';
+    }
+    if (q.type === 'diagram') {
+      const card = cardOf(q);
+      const ta = card ? card.querySelector('textarea') : null;
+      return ta && ta.value.trim() ? ta.value.trim() : '未作答';
+    }
+    return '未作答';
+  }
+
+  function buildAnswerEcho(mode) {
+    const lines = [];
+    let n = 0;
+
+    function walk(list) {
+      list.forEach(q => {
+        if (q.type === 'reading') { walk(q.questions || []); return; }
+        const s = state.get(q.__id);
+        if (!s) return;
+        n++;
+        let mark = '';
+        if (mode === 'practice' && q.type !== 'diagram') {
+          mark = s.checked
+            ? (s.score === 1 ? ' ✓' : s.score > 0 ? ' ◐' + fmt(s.score) : ' ✗')
+            : ' · 未判';
+        }
+        lines.push(n + ' ' + (TYPES[q.type] || '') + ' ' + answerOf(q, s) + mark);
+      });
+    }
+
+    walk(QUIZ.questions || []);
+    if (mode === 'practice') {
+      const done = flat.filter(q => state.get(q.__id).checked);
+      const score = done.reduce((a, q) => a + state.get(q.__id).score, 0);
+      lines.push('客观得分：' + fmt(score) + ' / ' + flat.length);
+    }
+    const kind = mode === 'paper' ? '试卷' : '练习';
+    const where = QUIZ.file ? '（' + QUIZ.file + '）' : '';
+    const tail = mode === 'paper'
+      ? '（以上是我的全部作答；请按文件里的答案与评分点逐题批改。）'
+      : '（以上是我的全部作答；客观题已判分，图示题为作答原文。）';
+    return kind + '作答回显《' + (QUIZ.title || '') + '》' + where + '：\n' +
+      lines.join('\n') + '\n' + tail;
   }
 
   function buildPaperPrompt() {
@@ -1178,6 +1274,17 @@ const QUIZ = {
       '</span>' + res.html;
   }
 
+  async function echoPractice() {
+    const my = epoch;
+    echoState = 'sending';
+    paintEcho();
+    const text = buildAnswerEcho('practice');
+    const ok = await sendChunks(text, footEl, text);
+    if (my !== epoch) return;
+    echoState = ok ? 'sent' : 'failed';
+    paintEcho();
+  }
+
   function update() {
     if (MODE === 'paper') { updatePaper(); return; }
     const done = flat.filter(q => state.get(q.__id).checked);
@@ -1219,6 +1326,10 @@ const QUIZ = {
       );
     });
     footEl.append(txt, again);
+    if (!echoStarted) {
+      echoStarted = true;
+      echoPractice();
+    }
   }
 
   init();

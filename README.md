@@ -11,7 +11,7 @@ A Hermes skill that turns “quiz me” into a clickable, self-grading widget �
 - **Practice mode** — per-question check, partial credit (0.5 for a missed multi-select, per-pair credit for matching), explanations, score bar and “wrong answers again”.
 - **Paper mode** (`mode: "paper"`) — no hints, no answers, no right/wrong marks; one submit button at the bottom; objective answers graded from the built-in key, diagram answers by rubric, feedback in chat.
 - **Theme-aware** — every colour comes from the injected `--foreground / --muted-foreground / --border / --accent` tokens; semantic green/red/amber are low-alpha; checkboxes are drawn by the widget; no white panels in dark mode.
-- **Talkback without losing long answers** — `window.hermes.send` is capped at 500 chars, so the full paper goes to the clipboard and a compact digest asks Hermes to `pbpaste` it. If the bridge refuses, a read-only copy box appears instead of a fake “submitted”.
+- **Every answer, not a digest** — practice mode echoes all answers once every question is checked; paper mode echoes every answer on submit. Long answers are split into `[作答 i/N]` chunks ending with `[END]`, so nothing is replaced by a 500-char digest. If the bridge refuses, a read-only copy box with the complete answers appears instead of a fake “submitted”.
 
 ## Install
 
@@ -60,14 +60,15 @@ const QUIZ = {
 - `references/grading.md` — scoring, answer normalization and talkback constraints.
 - `references/svg-recipes.md` — geometry, circle, parabola, topology and flowchart SVGs.
 
-## Talkback limits
+## Talkback and full echo
 
 `window.hermes.send()` caps prompts at `window.hermes.maxLength` (500 by default) and returns `{ ok, error }`. The templates:
 
-- write the full payload to the clipboard;
-- send a ≤500-char digest (question numbers + answers + file path);
-- ask Hermes to read the clipboard (`pbpaste` on macOS, `xclip -o` / `Get-Clipboard` elsewhere) and the source HTML for the keys;
-- show a read-only copy box and an honest failure state if the bridge refuses.
+- build the complete answer echo (question number, type, selected letters, fill values, matches, full diagram solution);
+- split it into `[作答 i/N]` chunks of `maxLength - 90`, ending with a final `[END]` chunk, and send them in order;
+- include `QUIZ.file` in the echo so Hermes can read the source HTML for stems and keys — the answer key is never put in the echo or the copy box;
+- show a read-only copy box with the complete answers and an honest failure state if the bridge refuses;
+- never replace the echo with a digest or clipboard-only payload.
 
 Check the returned `ok` before showing “submitted”; a resolved `{ok:false}` is not a delivery.
 

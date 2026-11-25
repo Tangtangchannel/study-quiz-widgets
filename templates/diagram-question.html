@@ -230,20 +230,58 @@
     box.scrollIntoView({ block: 'nearest' });
   }
 
-  async function sendToHermes(text, fallback) {
+  async function sendRaw(text) {
     const bridge = window.hermes;
-    if (bridge && typeof bridge.send === 'function') {
-      try {
-        let res = await bridge.send(text);
-        if (res && res.ok === false && res.error === 'throttled') {
-          await sleep(Math.min(1600, (res.retryAfterMs || 1100)));
-          res = await bridge.send(text);
-        }
-        if (!res || res.ok !== false) return true;
-      } catch (e) { /* fall through */ }
+    if (!bridge || typeof bridge.send !== 'function') return false;
+    try {
+      let res = await bridge.send(text);
+      if (res && res.ok === false && res.error === 'throttled') {
+        await sleep(Math.min(1600, (res.retryAfterMs || 1100)));
+        res = await bridge.send(text);
+      }
+      return !res || res.ok !== false;
+    } catch (e) {
+      return false;
     }
-    showCopy(fallback || text);
-    return false;
+  }
+
+  function splitChunks(text, size) {
+    const out = [];
+    let rest = String(text || '');
+    while (rest.length > size) {
+      let cut = rest.lastIndexOf('\n', size);
+      if (cut < Math.floor(size * 0.5)) {
+        cut = size;
+      } else {
+        cut += 1;
+      }
+      out.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    if (rest) out.push(rest);
+    return out;
+  }
+
+  async function sendChunks(text, fallback) {
+    const base = String(text || '').trim();
+    if (!base) return true;
+    const limit = Math.max(120, maxSend() - 90);
+    const chunks = splitChunks(base, limit);
+    if (chunks.length > 12) {
+      showCopy(fallback || base);
+      return false;
+    }
+    for (let i = 0; i < chunks.length; i++) {
+      const head = '[作答 ' + (i + 1) + '/' + chunks.length + ']' +
+        (i === 0 ? ' 请收齐到 [END] 后按顺序拼回（去掉每段 [作答 i/N] 标记）再处理，中间段落不必回复内容。\n' : '\n');
+      const tail = i === chunks.length - 1 ? '\n[END]' : '';
+      if (!(await sendRaw(head + chunks[i] + tail))) {
+        showCopy(fallback || base);
+        return false;
+      }
+      if (i < chunks.length - 1) await sleep(1100);
+    }
+    return true;
   }
 
   submit.addEventListener('click', async () => {
@@ -253,48 +291,30 @@
     submit.textContent = '发送中…';
     const subs = [...document.querySelectorAll('.subs li')].map(li => li.textContent.trim()).join(' ');
     const rubric = [...document.querySelectorAll('.rl')].map(l => l.textContent.trim());
-    const full = [
-      '请批改这道图示大题（按评分点判分，不要直接抄答案）。',
-      '题目：' + card.querySelector('.stem').textContent.trim(),
-      (subs ? '小问：' + subs : ''),
-      '图形条件：' + figureText(),
-      '我的解答：' + ans.slice(0, 2500),
-      '参考答案（仅供对照）：' + document.querySelector('.ref').textContent.trim(),
-      '评分点：' + rubric.join('；'),
-      '请输出：本题得分 x/y、逐条评分点是否拿到、第一处错误或跳步、一句改进建议。'
-    ].filter(Boolean).join('\n');
-
-    let copied = false;
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(full);
-        copied = true;
-      }
-    } catch (e) { /* clipboard may be blocked */ }
-
     const title = document.querySelector('.hd h3').textContent.trim();
     const path = location.pathname && location.pathname.charAt(0) === '/' ? location.pathname : '';
-    const head = '批改图示大题《' + title + '》' + (path ? '（' + clip(path, 70) + '）' : '') + '。我的解答：';
-    const tail = copied
-      ? '。完整解答与评分点在剪贴板（pbpaste），按评分点逐条判分。'
-      : '。完整解答见下方复制框，按评分点逐条判分。';
-    const digest = head + clip(ans.replace(/[。．.！!？?]+$/g, ''), Math.max(60, maxSend() - 12 - head.length - tail.length)) + tail;
+    const echo = [
+      '图示作答回显《' + title + '》' + (path ? '（' + path + '）' : '') + '：',
+      '题目：' + document.querySelector('.stem').textContent.trim(),
+      (subs ? '小问：' + subs : ''),
+      '图形条件：' + figureText(),
+      '我的解答：' + ans,
+      '评分点：' + rubric.join('；'),
+      '（请按以上评分点逐条判分。）'
+    ].filter(Boolean).join('\n');
 
-    const ok = await sendToHermes(digest, full);
+    const ok = await sendChunks(echo, echo);
     if (!ok) {
       submit.disabled = false;
       submit.textContent = '重试提交';
       return;
     }
-    if (!copied) showCopy(full);
     ta.disabled = true;
     submit.disabled = true;
     submit.textContent = '已提交';
     const note = document.createElement('div');
     note.className = 'sent';
-    note.textContent = copied
-      ? '已提交 · 完整解答在剪贴板，批改结果会回到聊天 ♪'
-      : '已提交 · 批改结果会回到聊天 ♪';
+    note.textContent = '已提交 · 全部解答已回显给 Hermes，批改结果会回到聊天 ♪';
     ta.after(note);
   });
 })();
