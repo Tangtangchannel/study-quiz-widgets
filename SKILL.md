@@ -1,7 +1,7 @@
 ---
 name: study-quiz-widgets
 description: "Use when asked to quiz or drill: self-grading widgets."
-version: 1.2.0
+version: 1.2.1
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -22,6 +22,10 @@ metadata:
 - 「考考我 / 出几道选择题 / 来点填空 / 连线题 / 多选题 / 阅读理解 / 来道大题 / 模拟考」
 - 复习已学内容、错题重练、考前自测、看完一章的随堂测
 - 用户贴一段材料说「根据这个出题」
+
+**默认产出 widget**：用户说「考考我 / 出几道题」时直接做可点测验卡，不要退化成聊天里逐题问答；
+除非用户明确说「就在聊天里念题」。当前 surface 不能渲染 `::preview` 时也照样落文件并给路径。
+- 讲解完一章后说「你考考我吧 / 问题有点模糊」→ 直接出卡，别在聊天里口述连续追问（多问一题必然被读成歧义）
 
 不用它：
 
@@ -44,7 +48,8 @@ metadata:
 4. **图先于题**：题干依赖空间关系的（几何、拓扑、电路、流程、坐标、表格）必须内联 SVG，
    不靠文字描述。
 5. **沿用 chat widget 契约**（本 skill 自带最小集）：主题变量带 fallback、无外链资源、flush left、
-   `minmax(0,1fr)`、正文 ≥12px、功能文字 ≥11px。文件落在 `~/.hermes/widgets/<topic>-quiz.html`，
+   `minmax(0,1fr)`、正文 ≥12px、功能文字 ≥11px。文件落在 `$HERMES_HOME/widgets/<topic>-quiz.html`
+   （默认 profile 即 `~/.hermes/widgets/`），
    `::preview{file="…"}` 单独一行。
 6. **配色只从注入变量取**：文字/次要文字/边框/强调色分别走 `--foreground` `--muted-foreground`
    `--border` `--accent` 的别名；绿/红/琥珀只能做低透明度语义底色（正确/错误/部分分），
@@ -101,9 +106,22 @@ const QUIZ = {
 - 单选 4 项，正确答案位置打散；不要 A、B、C 连号。
 - 填空按空给分，同义写法列全（大小写、全半角、单位、中文数字）；题干用 `{{}}` 占位。
 - 多选在解析里写明「漏选得 0.5，错选不得分」；判断题用两个选项的单选实现。
+- **多选必须画出方框**：`templates/quiz.html` 里多选和单选外观一样（选中只变蓝），用户看不出能选多个。追加固定 CSS，并在渲染后按题型标签打类（用 MutationObserver，因为「重做 / 再来一组」会重建节点，一次性打类会失效）：
+  ```css
+  .q.is-multi .opt::before{content:'';display:inline-block;width:11px;height:11px;border:1.5px solid rgba(127,127,140,.55);border-radius:3px;margin-right:8px;vertical-align:-1px;flex:none}
+  .q.is-multi .opt.sel::before{background:var(--ac,#2f5ad0);border-color:var(--ac,#2f5ad0);box-shadow:inset 0 0 0 2px rgba(255,255,255,.92)}
+  ```
+  ```js
+  const mark=()=>document.querySelectorAll('.q').forEach(q=>{const t=q.querySelector('.type'); if(t&&t.textContent.includes('多选')) q.classList.add('is-multi');});
+  mark(); new MutationObserver(mark).observe(document.body,{childList:true,subtree:true});
+  ```
+  验证方式：连点两个选项，`.opt.sel` 计数应为 2；再截图确认方框和填充可见。
+- 题干里用 `<code>` 写 `seq = 301` 这类值时，模板已带 `.stem code` 行内代码样式；不要另加全局 `code{}` 覆盖，否则会改到按钮和其他控件。
 - 连线题右列默认错位，别让 1 对 1 排成一条直线。
 - 阅读理解材料 ≤600 字，配 3–4 题，每题都能回到原文定位。
 - 图形题条件写全（边长、角度、速率、网段），图上不写答案；难题给 `hint`。
+- **一题只考一个变量**：题干把已知状态完整写出来（`seq = 301`、`ack = 651`、长度 200 字节），只问一个格子——报文里写多少 / 发完账本变多少 / 回包的 ack 是多少。把“两个数各是多少”塞进一道题，用户会直接回“问题有点模糊”；拆成同场景连续两题，比补一句解释有用。
+- **易混概念配成对照题**：同一场景连问两题，只换提问对象（报文值 vs 账本值、seq vs ack）。错题一题就能定位混在哪一列，比换个场景重出一遍有效。
 
 ## 图形题
 
@@ -137,7 +155,13 @@ const QUIZ = {
 2. 答卷头部的 `QUIZ.file` 路径读原 HTML 的 `QUIZ` 数据，取题干、标准答案、解析、评分点。
 3. 客观题按内置答案判，图示题按评分点判；输出总分、逐题对错、每题一句解析，错题指出错在哪一步。
 4. 只收到部分片段、或用户从复制框粘贴时：以收到的完整文本为准；缺题就明说缺哪几题，
-   让用户重发，不要猜答案或假装已收到。
+   让用户重发，不要猜答案或假装已收到。缺片时想读剪贴板救急，先核对头部：只有以
+   「试卷作答回显 / 练习作答回显」开头才算答卷；`pbpaste` 里常躺着更早复制过的碎片
+   （单个词、上一道填空），形态不对就直接让用户补发，别把旧文本当答卷。让他补发时给
+   **一问一行的填法**（`1. seq ack 账本 / 2. seq ack / 3. … / 4. 理由`），比“把第 N 题再做一遍”省一个来回。
+5. **连线题按渲染后的列顺序判分**：模板会在运行时打乱右列，`pairs` 里的原始顺序不是屏幕顺序。
+   判分前用浏览器打开原卡，读 `.mcol.left button` / `.mcol.right button` 的文本，再把学习者写的
+   `1C,2D,…` 映射过去；凭 `pairs` 顺序判会把全对判成错。
 
 ### 练习模式的「作答回显」
 
@@ -152,6 +176,7 @@ const QUIZ = {
   如果只收到部分片段，说明发送中断，让他重试或从复制框粘贴。
 - 「错题再来一组」发来的是**错题题干列表**，回一份新文件（`…-retry.html`）的同类题卡，别覆盖原卡；
   同一知识点、同难度，3–5 道即可，并在正文点明“考的是哪一条规则”。
+- **先诊断根因再出题**：几道错题往往是同一处混淆（把报文里的值当成账本、把 ack 的值抄进 seq）。正文先用一张「你选 / 正确 / 你想成了」三列表点破，再出 3–4 道同场景对照题专打这一点；不要复述整套题、也不要逐题重讲。分数不是重点，错因是否同源才是。
 
 ## 判分语义（模板已实现，别另造）
 
@@ -196,10 +221,15 @@ const QUIZ = {
 - 只用 1px `--border` 下划线，深色下几乎看不见；给输入框加淡底色 + `--muted-foreground` 下划线。
 - `[hidden]` 打不过 `.foot{display:flex}`：空的脚注/交卷条会白白占高度，必须写
   `.foot[hidden],.paperbar[hidden]{display:none}`。
-- `::preview` 指向 scratch 文件 —— 会被清理，预览变空白；必须落在 `~/.hermes/widgets/`。
+- `::preview` 指向 scratch 文件 —— 会被清理，预览变空白；必须落在 `$HERMES_HOME/widgets/`
+  （默认 profile 即 `~/.hermes/widgets/`）。
+- **preview 指向还没写出来的文件**：回复里出现 `::preview{file=…}` 之前，HTML 必须已经落盘并跑完宽度与点击验证。顺序固定：写文件 → 渲染验证 → 再写正文；先写“点这里练”再补文件，用户端只会看到「预览不可用」，还要多解释一轮。
 - 连线 SVG 盖住按钮 —— `.links` 必须 `pointer-events:none`，按钮 `position:relative;z-index:1`。
 - 填空输入框按字符数给宽，太窄看不见自己写的答案；`w` 按最长答案估。
 - 阅读理解整段塞满 → 超过 1200px；拆题或缩材料，不要缩字号。
-- **题多时的紧凑排版**：模板原样放 10 道单选，960px 宽实测 **2251px** 高，380px 宽 **2908px** —— 高度是题量决定的，压不下来就别硬压字号（正文仍 ≥12px）。加一段紧凑 override 可降到 2049px / 2664px：`.q{padding:9px 11px 8px;margin-bottom:6px}` `.stem{font-size:13px;line-height:1.6;margin:0 0 6px}` `.opts{gap:4px}` `.opt{padding:5px 8px;font-size:12px}` `.qh{margin-bottom:3px}` `.num{width:19px;height:19px}` `.fb{padding:7px 9px;font-size:11.5px}`，并在正文说明会滚动。紧凑 CSS 要作为**固定的一整段**追加到 `</style>` 前；**别拿自己上次生成的卡当模板**——按注释标记字符串切 CSS 会切出半截注释，规则静默失效（页面看起来只是“没生效”，查半天）。一律从 `templates/quiz.html` 重新复制、整块替换 `QUIZ`。
+- **题多时的紧凑排版**：模板原样放 10 道单选，960px 宽实测 **2251px** 高，380px 宽 **2908px** —— 高度是题量决定的，压不下来就别硬压字号（正文仍 ≥12px）。加一段紧凑 override 可降到 2049px / 2664px：`.q{padding:9px 11px 8px;margin-bottom:6px}` `.stem{font-size:13px;line-height:1.6;margin:0 0 6px}` `.opts{gap:4px}` `.opt{padding:5px 8px;font-size:12px}` `.qh{margin-bottom:3px}` `.num{width:19px;height:19px}` `.fb{padding:7px 9px;font-size:11.5px}`，并在正文说明会滚动。紧凑 CSS 要作为**固定的一整段**追加到 `</style>` 前；**别拿自己上次生成的卡当模板**——按注释标记字符串切 CSS 会切出半截注释，规则静默失效（页面看起来只是“没生效”，查半天）。一律从 `templates/quiz.html` 重新复制、整块替换 `QUIZ`。六道长题干（每题带 `<code>` 与状态行）实测约 1300px，套紧凑 override 也压不进 1200px，正文说明“卡较长、框内滚动”即可。
 - 用 `clarify` 出整套卷：最多 5 题、不能带图、长题干会超时。
 - 只写不测：SVG 标签压住设备框、连线错位，都是渲染后才看得见。
+- **用 `re.sub` 把 QUIZ JSON 灌进模板会静默损坏**：替换串里的 `\n` 被当成转义，JSON 字符串里冒出裸换行 → `const QUIZ` 整段语法错误、`typeof QUIZ === 'undefined'`、页面 0 题。一律 `re.sub(pat, lambda m: block, tpl, flags=re.S)`，别直接传 block。
+- **`fill` 题干支持内联 HTML**：`renderFillStem` 按段 `innerHTML`，`<code>` / `<b>` 会正常显示；仍不要放脚本、外链或未闭合标签。
+- **一条消息只显示一个 `::preview`**：发两三张只出第一张，还容易被读成“预览不可用”。整套卷要合并成单个 widget（用户明确说过“别分开”），长就让它滚动。

@@ -50,6 +50,7 @@
   .type{font-size:11.5px;line-height:1.65;letter-spacing:.02em;color:var(--mu);border:1px solid var(--bd);border-radius:5px;padding:0 5px;white-space:nowrap}
   .tagline{font-size:11px;color:var(--mu)}
   .stem{font-size:13.5px;line-height:1.72;margin:0 0 7px;overflow-wrap:anywhere}
+  .stem code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;background:rgba(127,127,140,.12);padding:1px 5px;border-radius:4px}
   .stem b,.stem strong{font-weight:650}
 
   .opts{display:grid;gap:5px}
@@ -479,7 +480,9 @@ const QUIZ = {
 
     if (parts.length - 1 === blanks.length) {
       parts.forEach((t, i) => {
-        stem.append(document.createTextNode(t));
+        const span = document.createElement('span');
+        span.innerHTML = t;
+        stem.append(span);
         if (i < blanks.length) stem.append(makeBlank(blanks[i], i));
       });
       card.append(stem);

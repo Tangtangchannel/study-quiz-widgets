@@ -28,10 +28,12 @@ git clone https://github.com/Tangtangchannel/study-quiz-widgets.git \
 
 ## Quick start
 
-1. Copy `templates/quiz.html` to `~/.hermes/widgets/`.
+1. Copy `templates/quiz.html` to `$HERMES_HOME/widgets/` (default profile: `~/.hermes/widgets/`).
 2. Replace the `QUIZ` object; keep the renderers.
 3. Output the file with `::preview{file="/abs/path.html"}` alone on its own line.
 4. For a paper, add `mode: "paper"` and set `file` to the widget's absolute path.
+
+In a non-default profile, `$HERMES_HOME` is `~/.hermes/profiles/<name>/`; write widgets and their `file` paths there rather than into another profile's `widgets/` directory.
 
 Minimal data:
 
