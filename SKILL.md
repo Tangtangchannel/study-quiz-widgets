@@ -189,6 +189,8 @@ const QUIZ = {
   不要退回摘要/剪贴板。
 - **分片头没换行**：`[作答 i/N]` 后必须换行，否则 Hermes 去掉头部时会把正文第一行一起删掉；
   用 1000+ 字答案做一次拼回校验。
+- **分片测试被后台节流**：headless/后台标签页的 `setTimeout` 会被压慢，4 片可能要 10s+，看起来像卡住；
+  先 `Page.bringToFront` + `Emulation.setFocusEmulationEnabled`，并等到 `[END]` 再断言，别误判死循环。
 - **深色主题闪光弹**：写死 `#fff`/`#f8f8f8` 卡片、原生 checkbox、`background:white` 的输入框，
   在深色 app 里就是一块白板。底色一律透明或 `rgba(127,127,140,.05–.1)`，语义色只做低透明度。
 - 只用 1px `--border` 下划线，深色下几乎看不见；给输入框加淡底色 + `--muted-foreground` 下划线。
@@ -198,6 +200,6 @@ const QUIZ = {
 - 连线 SVG 盖住按钮 —— `.links` 必须 `pointer-events:none`，按钮 `position:relative;z-index:1`。
 - 填空输入框按字符数给宽，太窄看不见自己写的答案；`w` 按最长答案估。
 - 阅读理解整段塞满 → 超过 1200px；拆题或缩材料，不要缩字号。
-- **题多时的紧凑排版**：模板原样放 10 道单选，960px 宽实测 **2251px** 高，380px 宽 **2908px** —— 高度是题量决定的，压不下来就别硬压字号（正文仍 ≥12px）。加一段紧凑 override 可降到 2049px / 2664px：`.q{padding:9px 11px 8px;margin-bottom:6px}` `.stem{font-size:13px;line-height:1.6;margin:0 0 6px}` `.opts{gap:4px}` `.opt{padding:5px 8px;font-size:12px}` `.qh{margin-bottom:3px}` `.num{width:19px;height:19px}` `.fb{padding:7px 9px;font-size:11.5px}`，并在正文说明会滚动。
+- **题多时的紧凑排版**：模板原样放 10 道单选，960px 宽实测 **2251px** 高，380px 宽 **2908px** —— 高度是题量决定的，压不下来就别硬压字号（正文仍 ≥12px）。加一段紧凑 override 可降到 2049px / 2664px：`.q{padding:9px 11px 8px;margin-bottom:6px}` `.stem{font-size:13px;line-height:1.6;margin:0 0 6px}` `.opts{gap:4px}` `.opt{padding:5px 8px;font-size:12px}` `.qh{margin-bottom:3px}` `.num{width:19px;height:19px}` `.fb{padding:7px 9px;font-size:11.5px}`，并在正文说明会滚动。紧凑 CSS 要作为**固定的一整段**追加到 `</style>` 前；**别拿自己上次生成的卡当模板**——按注释标记字符串切 CSS 会切出半截注释，规则静默失效（页面看起来只是“没生效”，查半天）。一律从 `templates/quiz.html` 重新复制、整块替换 `QUIZ`。
 - 用 `clarify` 出整套卷：最多 5 题、不能带图、长题干会超时。
 - 只写不测：SVG 标签压住设备框、连线错位，都是渲染后才看得见。
